@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
-import 'package:share_plus/share_plus.dart';
 import '../../providers/key_provider.dart';
 import '../../providers/auth_provider.dart';
 import '../../core/crypto/models/key_pair.dart';
@@ -240,19 +240,32 @@ class KeyManagementScreen extends StatelessWidget {
         }
         break;
       case 'export_public':
-        // 导出公钥不需要验证密码
-        await Share.share(keyPair.publicKeyPem);
+        if (context.mounted) {
+          showDialog(
+            context: context,
+            builder: (context) => _ExportKeyDialog(
+              title: '导出公钥',
+              keyContent: keyPair.publicKeyPem,
+              isPrivateKey: false,
+            ),
+          );
+        }
         break;
       case 'export_private':
-        // 导出私钥需要验证密码
         final unlocked = await authProvider.ensureKeyUnlocked(context);
         if (!unlocked) return;
 
         final confirm = await showDialog<bool>(
           context: context,
           builder: (context) => AlertDialog(
-            title: const Text('警告'),
-            content: const Text('私钥非常重要，请勿泄露给他人！确定要导出吗？'),
+            title: const Row(
+              children: [
+                Icon(Icons.warning, color: Colors.orange),
+                SizedBox(width: 8),
+                Text('警告'),
+              ],
+            ),
+            content: const Text('私钥非常重要，请勿泄露给他人！\n确定要导出私钥吗？'),
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(context, false),
@@ -267,7 +280,14 @@ class KeyManagementScreen extends StatelessWidget {
           ),
         );
         if (confirm == true && context.mounted) {
-          await Share.share(keyPair.privateKeyPem ?? '');
+          showDialog(
+            context: context,
+            builder: (context) => _ExportKeyDialog(
+              title: '导出私钥',
+              keyContent: keyPair.privateKeyPem ?? '',
+              isPrivateKey: true,
+            ),
+          );
         }
         break;
       case 'delete':
@@ -446,6 +466,96 @@ class _RenameKeyDialogState extends State<_RenameKeyDialog> {
             Navigator.pop(context, name);
           },
           child: const Text('保存'),
+        ),
+      ],
+    );
+  }
+}
+
+class _ExportKeyDialog extends StatelessWidget {
+  final String title;
+  final String keyContent;
+  final bool isPrivateKey;
+
+  const _ExportKeyDialog({
+    required this.title,
+    required this.keyContent,
+    required this.isPrivateKey,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Row(
+        children: [
+          Icon(
+            isPrivateKey ? Icons.vpn_key : Icons.key,
+            color: isPrivateKey ? Colors.red : Colors.blue,
+          ),
+          const SizedBox(width: 8),
+          Text(title),
+        ],
+      ),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (isPrivateKey)
+              Container(
+                padding: const EdgeInsets.all(8),
+                margin: const EdgeInsets.only(bottom: 12),
+                decoration: BoxDecoration(
+                  color: Colors.red.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.red.shade200),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.warning, color: Colors.red.shade700, size: 20),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        '私钥非常重要，请勿泄露！',
+                        style: TextStyle(color: Colors.red.shade700),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            const Text('点击下方文本可选中，然后复制：'),
+            const SizedBox(height: 8),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.grey.shade100,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.grey.shade300),
+              ),
+              child: SelectableText(
+                keyContent,
+                style: const TextStyle(fontSize: 12, fontFamily: 'monospace'),
+              ),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('关闭'),
+        ),
+        ElevatedButton.icon(
+          onPressed: () async {
+            await Clipboard.setData(ClipboardData(text: keyContent));
+            if (context.mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text('${isPrivateKey ? '私钥' : '公钥'}已复制到剪贴板')),
+              );
+            }
+          },
+          icon: const Icon(Icons.copy),
+          label: const Text('复制'),
         ),
       ],
     );
