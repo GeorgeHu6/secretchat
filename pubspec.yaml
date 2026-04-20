@@ -1,0 +1,44 @@
+name: secretchat
+description: "A secure chat application with asymmetric encryption"
+publish_to: 'none'
+version: 0.1.0
+
+environment:
+  sdk: ^3.8.0
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # 加密相关
+  pointycastle: ^3.9.0
+  encrypt: ^5.0.3
+  crypto: ^3.0.3
+  asn1lib: ^1.5.0
+  
+  # 状态管理
+  provider: ^6.1.1
+  get_it: ^7.6.4
+  
+  # 工具
+  file_picker: ^6.1.1
+  share_plus: ^7.2.1
+  uuid: ^4.3.3
+  image_picker: ^1.0.7
+  intl: ^0.19.0
+  path_provider: ^2.1.2
+  
+  # 二维码
+  qr_flutter: ^4.1.0
+  mobile_scanner: ^3.5.0
+  
+  # UI
+  flutter_material_design_icons: ^1.1.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+
+flutter:
+  uses-material-design: true
