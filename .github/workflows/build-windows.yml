@@ -108,6 +108,7 @@ jobs:
             logo_path: secret_chat_icon.png
             capabilities: internetClient
             languages: zh-cn, en-us
+            install_certificate: false
           "@
             Add-Content -Path pubspec.yaml -Value $msixConfig
             Write-Host "✅ 已注入 msix_config"
