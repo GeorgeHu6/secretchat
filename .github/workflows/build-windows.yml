@@ -1,0 +1,207 @@
+name: Build Flutter Windows
+
+on:
+  # 手动触发
+  workflow_dispatch:
+    inputs:
+      app_version:
+        description: '应用版本号 (例如: 1.0.0)'
+        required: false
+        default: '1.0.0'
+        type: string
+      package_type:
+        description: '打包格式'
+        required: true
+        default: 'both'
+        type: choice
+        options:
+          - both        # MSIX 安装包 + 便携 ZIP
+          - msix        # 仅 MSIX 安装包
+          - zip         # 仅便携 ZIP
+
+  # 推送 Tag 时自动触发（可选）
+  # push:
+  #   tags:
+  #     - 'v*'
+
+env:
+  FLUTTER_VERSION: '3.32.0'   # ← 修改为你使用的 Flutter 版本
+  APP_NAME: 'secretchat'  # ← 修改为 pubspec.yaml 中的 name
+  APP_DISPLAY_NAME: 'SecretChat'  # ← 应用显示名称（中文友好）
+  # MSIX 签名相关（不签名可留空，见下方说明）
+  MSIX_PUBLISHER: 'CN=GeorgeHu'       # ← 修改为你的发布者标识
+  MSIX_PUBLISHER_DISPLAY: 'GeorgeHu'  # ← 修改为你的名称
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+      # 1. 检出代码
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      # 2. 设置 Flutter
+      - name: 设置 Flutter ${{ env.FLUTTER_VERSION }}
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      # 3. 安装依赖
+      - name: 安装 Flutter 依赖
+        run: flutter pub get
+
+      # 4. 运行测试（可选）
+      # - name: 运行单元测试
+      #   run: flutter test
+
+      # 5. 构建 Windows Release
+      - name: 构建 Flutter Windows Release
+        run: flutter build windows --release
+
+      # ════════════════════════════════════════
+      # 打包方式 A：便携 ZIP（无需签名）
+      # ════════════════════════════════════════
+      - name: 打包便携 ZIP
+        if: ${{ github.event.inputs.package_type == 'zip' || github.event.inputs.package_type == 'both' || github.event.inputs.package_type == '' }}
+        shell: pwsh
+        run: |
+          $version = "${{ github.event.inputs.app_version || '1.0.0' }}"
+          $zipName = "${{ env.APP_NAME }}-$version-windows-x64.zip"
+          $buildDir = "build\windows\x64\runner\Release"
+
+          Compress-Archive -Path "$buildDir\*" -DestinationPath "$zipName" -Force
+
+          echo "ZIP_NAME=$zipName" | Out-File -FilePath $env:GITHUB_ENV -Append
+          Write-Host "✅ ZIP 打包完成: $zipName"
+          Get-Item $zipName | Select-Object Name, Length
+
+      # ════════════════════════════════════════
+      # 打包方式 B：MSIX 安装包
+      # ════════════════════════════════════════
+
+      # B-1. 安装 msix 插件
+      - name: 安装 msix pub 插件
+        if: ${{ github.event.inputs.package_type == 'msix' || github.event.inputs.package_type == 'both' || github.event.inputs.package_type == '' }}
+        run: flutter pub add --dev msix
+
+      # B-2. 写入 MSIX 配置到 pubspec.yaml（追加，不覆盖现有配置）
+      #      如果你的 pubspec.yaml 已有 msix_config 节，请删除此步骤，直接在项目中配置
+      - name: 注入 MSIX 配置
+        if: ${{ github.event.inputs.package_type == 'msix' || github.event.inputs.package_type == 'both' || github.event.inputs.package_type == '' }}
+        shell: pwsh
+        run: |
+          $version = "${{ github.event.inputs.app_version || '1.0.0' }}"
+          # 检查 pubspec.yaml 是否已有 msix_config
+          $content = Get-Content pubspec.yaml -Raw
+          if ($content -notmatch 'msix_config') {
+            $msixConfig = @"
+
+          msix_config:
+            display_name: ${{ env.APP_DISPLAY_NAME }}
+            publisher_display_name: ${{ env.MSIX_PUBLISHER_DISPLAY }}
+            identity_name: com.example.${{ env.APP_NAME }}
+            publisher: ${{ env.MSIX_PUBLISHER }}
+            msix_version: ${version}.0
+            logo_path: assets\icon.png
+            capabilities: internetClient
+            languages: zh-cn, en-us
+          "@
+            Add-Content -Path pubspec.yaml -Value $msixConfig
+            Write-Host "✅ 已注入 msix_config"
+          } else {
+            Write-Host "ℹ️  pubspec.yaml 中已有 msix_config，跳过注入"
+          }
+
+      # B-3. 构建 MSIX（自签名，无需证书）
+      - name: 构建 MSIX
+        if: ${{ github.event.inputs.package_type == 'msix' || github.event.inputs.package_type == 'both' || github.event.inputs.package_type == '' }}
+        shell: pwsh
+        run: |
+          # --no-sign 生成未签名包（用户安装时需开启开发者模式或侧加载）
+          # 如需签名请删除 --no-sign 并配置证书（见下方 Secret 说明）
+          dart run msix:create --no-sign
+
+          $msixFile = Get-ChildItem -Path "build\windows\x64\runner\Release" -Filter "*.msix" | Select-Object -First 1
+          if ($msixFile) {
+            $version = "${{ github.event.inputs.app_version || '1.0.0' }}"
+            $newName = "${{ env.APP_NAME }}-$version-windows-x64.msix"
+            Copy-Item $msixFile.FullName -Destination $newName
+            echo "MSIX_NAME=$newName" | Out-File -FilePath $env:GITHUB_ENV -Append
+            Write-Host "✅ MSIX 打包完成: $newName"
+            Get-Item $newName | Select-Object Name, Length
+          } else {
+            Write-Error "❌ 未找到生成的 .msix 文件"
+            exit 1
+          }
+
+      # ════════════════════════════════════════
+      # 上传 Artifact（Actions 页面可直接下载）
+      # ════════════════════════════════════════
+      - name: 上传 ZIP Artifact
+        if: ${{ (github.event.inputs.package_type == 'zip' || github.event.inputs.package_type == 'both' || github.event.inputs.package_type == '') && env.ZIP_NAME != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.APP_NAME }}-windows-zip
+          path: ${{ env.ZIP_NAME }}
+          retention-days: 30
+
+      - name: 上传 MSIX Artifact
+        if: ${{ (github.event.inputs.package_type == 'msix' || github.event.inputs.package_type == 'both' || github.event.inputs.package_type == '') && env.MSIX_NAME != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.APP_NAME }}-windows-msix
+          path: ${{ env.MSIX_NAME }}
+          retention-days: 30
+
+  # ─────────────────────────────────────────
+  # 可选：创建 GitHub Release
+  # ─────────────────────────────────────────
+  release:
+    needs: build-windows
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.app_version != ''
+    permissions:
+      contents: write
+
+    steps:
+      - name: 下载所有构建产物
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts/
+
+      - name: 查看产物
+        run: find artifacts/ -type f | sort
+
+      - name: 创建 GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ github.event.inputs.app_version }}
+          name: Release v${{ github.event.inputs.app_version }}
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+          files: artifacts/**/*
+          body: |
+            ## 📦 Windows 下载
+
+            | 格式 | 说明 |
+            |------|------|
+            | `.msix` | Windows 安装包（推荐），双击安装 |
+            | `.zip` | 便携版，解压后直接运行 `.exe` |
+
+            ## 🚀 安装说明
+
+            ### MSIX 安装包
+            > ⚠️ 此包为**自签名**，安装前需启用 Windows 侧加载：
+            > 设置 → 系统 → 开发者选项 → 开启「开发人员模式」
+
+            ```powershell
+            # 或使用 PowerShell 安装
+            Add-AppxPackage .\${{ env.APP_NAME }}-${{ github.event.inputs.app_version }}-windows-x64.msix
+            ```
+
+            ### 便携 ZIP
+            解压后直接运行 `${{ env.APP_NAME }}.exe`，无需安装。
