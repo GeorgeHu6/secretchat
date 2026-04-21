@@ -6,49 +6,44 @@ class AuthProvider extends ChangeNotifier {
   final StorageService _storageService = StorageService();
   bool _hasSetup = false;
   bool _isLoading = false;
-  bool _isKeyUnlocked = false; // 密钥是否已解锁（本次会话）
+  bool _isKeyUnlocked = false;
 
   bool get hasSetup => _hasSetup;
   bool get isLoading => _isLoading;
-  bool get isKeyUnlocked => _isKeyUnlocked; // 是否已验证过密码
+  bool get isKeyUnlocked => _isKeyUnlocked;
 
-  /// 检查是否已设置过主密码（启动时调用）
   Future<void> checkSetup() async {
     _isLoading = true;
     notifyListeners();
 
     try {
-      final salt = await _storageService.readSalt();
-      _hasSetup = salt != null;
-      // 不需要输入密码，直接进入主界面
-      _isKeyUnlocked = false; // 密钥未解锁，需要操作时验证
+      final hasData = await _storageService.hasSetup();
+      _hasSetup = hasData;
+      _isKeyUnlocked = false;
     } finally {
       _isLoading = false;
       notifyListeners();
     }
   }
 
-  /// 首次设置主密码
   Future<void> setup(String password) async {
     _isLoading = true;
     notifyListeners();
 
     await _storageService.initializeStorage(password);
     _hasSetup = true;
-    _isKeyUnlocked = true; // 设置密码后自动解锁
+    _isKeyUnlocked = true;
 
     _isLoading = false;
     notifyListeners();
   }
 
-  /// 验证密码并解锁密钥（密钥操作前调用）
-  /// 返回 true 表示验证成功，false 表示失败
   Future<bool> verifyAndUnlock(String password) async {
     try {
       final valid = await _storageService.verifyPassword(password);
       if (valid) {
         await _storageService.unlock(password);
-        _isKeyUnlocked = true; // 标记为已解锁
+        _isKeyUnlocked = true;
         notifyListeners();
         return true;
       }
@@ -58,14 +53,11 @@ class AuthProvider extends ChangeNotifier {
     }
   }
 
-  /// 检查密钥是否已解锁，未解锁则弹出密码验证对话框
-  /// 返回 true 表示已解锁或验证成功，false 表示验证失败或取消
   Future<bool> ensureKeyUnlocked(BuildContext context) async {
     if (_isKeyUnlocked) {
-      return true; // 已解锁，无需再次验证
+      return true;
     }
 
-    // 未解锁，弹出密码验证对话框
     final verified = await showDialog<bool>(
       context: context,
       builder: (context) => const _PasswordVerifyDialog(),
@@ -74,9 +66,15 @@ class AuthProvider extends ChangeNotifier {
     return verified == true;
   }
 
-  /// 手动锁定密钥（从设置界面调用）
   void lockKeys() {
     _storageService.lock();
+    _isKeyUnlocked = false;
+    notifyListeners();
+  }
+
+  Future<void> clearAllData() async {
+    await _storageService.clearAllData();
+    _hasSetup = false;
     _isKeyUnlocked = false;
     notifyListeners();
   }

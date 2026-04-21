@@ -200,4 +200,20 @@ class StorageService {
         .map((f) => f.path.split('/').last.replaceAll('_pub.pem', ''))
         .toList();
   }
+
+  Future<void> clearAllData() async {
+    final basePath = await PathUtils.getAppBasePath();
+    final baseDir = Directory(basePath);
+
+    if (await baseDir.exists()) {
+      await baseDir.delete(recursive: true);
+    }
+
+    _derivedKey = null;
+  }
+
+  Future<bool> hasSetup() async {
+    final salt = await readSalt();
+    return salt != null;
+  }
 }

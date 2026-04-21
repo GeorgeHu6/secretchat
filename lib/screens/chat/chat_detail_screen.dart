@@ -518,9 +518,14 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
               tooltip: '加密文件',
             ),
             IconButton(
+              icon: const Icon(Icons.content_paste),
+              onPressed: _importFromClipboard,
+              tooltip: '从剪贴板导入',
+            ),
+            IconButton(
               icon: const Icon(Icons.file_present),
               onPressed: () => _showImportDialog(),
-              tooltip: '导入消息',
+              tooltip: '手动粘贴导入',
             ),
             IconButton(
               icon: const Icon(Icons.send),
@@ -790,6 +795,35 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
 
     if (result != null) {
       await _processImportedMessage(result);
+    }
+  }
+
+  Future<void> _importFromClipboard() async {
+    try {
+      final clipboardData = await Clipboard.getData(Clipboard.kTextPlain);
+      final text = clipboardData?.text;
+
+      if (text == null || text.trim().isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('剪贴板中没有文本内容')),
+        );
+        return;
+      }
+
+      final trimmedText = text.trim();
+      
+      if (!trimmedText.startsWith('eyJ') && !trimmedText.contains('encryptedContent')) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('剪贴板内容不是有效的加密消息格式')),
+        );
+        return;
+      }
+
+      await _processImportedMessage(trimmedText);
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('导入失败：$e')),
+      );
     }
   }
 

@@ -97,6 +97,11 @@ class ContactProvider extends ChangeNotifier {
     return _contacts[contactId]?.publicKeyPem != null;
   }
 
+  void clearState() {
+    _contacts.clear();
+    notifyListeners();
+  }
+
   Future<void> _saveContactsMetadata() async {
     final basePath = await PathUtils.getAppBasePath();
     final contactsFile = File('$basePath/contacts.json');

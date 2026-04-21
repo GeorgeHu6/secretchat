@@ -102,4 +102,10 @@ class KeyProvider extends ChangeNotifier {
   KeyPair? getKeyPair(String keyId) {
     return _keyPairs[keyId];
   }
+
+  void clearState() {
+    _keyPairs.clear();
+    _defaultKeyPair = null;
+    notifyListeners();
+  }
 }
