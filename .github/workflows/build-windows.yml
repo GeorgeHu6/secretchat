@@ -122,7 +122,7 @@ jobs:
         run: |
           # --no-sign 生成未签名包（用户安装时需开启开发者模式或侧加载）
           # 如需签名请删除 --no-sign 并配置证书（见下方 Secret 说明）
-          dart run msix:create --no-sign
+          dart run msix:create
 
           $msixFile = Get-ChildItem -Path "build\windows\x64\runner\Release" -Filter "*.msix" | Select-Object -First 1
           if ($msixFile) {
