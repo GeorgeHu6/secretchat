@@ -105,7 +105,7 @@ jobs:
             identity_name: com.example.${{ env.APP_NAME }}
             publisher: ${{ env.MSIX_PUBLISHER }}
             msix_version: ${version}.0
-            logo_path: assets\icon.png
+            logo_path: secret_chat_icon.png
             capabilities: internetClient
             languages: zh-cn, en-us
           "@
