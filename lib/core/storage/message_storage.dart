@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:path/path.dart' as p;
 import '../utils/path_utils.dart';
 import '../crypto/models/encrypted_message.dart';
 
@@ -6,7 +7,7 @@ class MessageStorageService {
   Future<void> saveMessage(String contactId, EncryptedMessage message) async {
     final messagesPath = await _getMessagesPath(contactId);
     final fileName = '${message.metadata.messageId}.enc';
-    final file = File('$messagesPath/$fileName');
+    final file = File(p.join(messagesPath, fileName));
 
     final encoded = message.encode();
     await file.writeAsString(encoded);
@@ -63,7 +64,7 @@ class MessageStorageService {
 
   Future<String> _getMessagesPath(String contactId) async {
     final basePath = await PathUtils.getAppBasePath();
-    final messagesPath = '$basePath/messages/$contactId';
+    final messagesPath = p.join(basePath, 'messages', contactId);
 
     final dir = Directory(messagesPath);
     if (!await dir.exists()) {

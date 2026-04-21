@@ -1,8 +1,9 @@
 import 'dart:convert';
 import 'dart:math';
 import 'dart:typed_data';
-import 'package:pointycastle/export.dart';
 import 'dart:io';
+import 'package:pointycastle/export.dart';
+import 'package:path/path.dart' as p;
 import '../utils/path_utils.dart';
 import '../utils/constants.dart';
 
@@ -61,26 +62,26 @@ class StorageService {
 
   Future<void> _writeSalt(Uint8List salt) async {
     final basePath = await PathUtils.getAppBasePath();
-    final file = File('$basePath/salt.dat');
+    final file = File(p.join(basePath, 'salt.dat'));
     await file.writeAsBytes(salt);
   }
 
   Future<Uint8List?> readSalt() async {
     final basePath = await PathUtils.getAppBasePath();
-    final file = File('$basePath/salt.dat');
+    final file = File(p.join(basePath, 'salt.dat'));
     if (!await file.exists()) return null;
     return await file.readAsBytes();
   }
 
   Future<void> _writePasswordHash(Uint8List hash) async {
     final basePath = await PathUtils.getAppBasePath();
-    final file = File('$basePath/hash.dat');
+    final file = File(p.join(basePath, 'hash.dat'));
     await file.writeAsBytes(hash);
   }
 
   Future<Uint8List?> readPasswordHash() async {
     final basePath = await PathUtils.getAppBasePath();
-    final file = File('$basePath/hash.dat');
+    final file = File(p.join(basePath, 'hash.dat'));
     if (!await file.exists()) return null;
     return await file.readAsBytes();
   }
@@ -146,7 +147,7 @@ class StorageService {
         .listSync()
         .whereType<File>()
         .where((f) => f.path.endsWith('.pem'))
-        .map((f) => f.path.split('/').last.replaceAll('.pem', ''))
+        .map((f) => p.basename(f.path).replaceAll('.pem', ''))
         .toList();
   }
 
@@ -169,7 +170,7 @@ class StorageService {
 
   Future<Map<String, String>> _loadKeyMetadata() async {
     final basePath = await PathUtils.getAppBasePath();
-    final file = File('$basePath/key_names.json');
+    final file = File(p.join(basePath, 'key_names.json'));
 
     if (!await file.exists()) return {};
 
@@ -184,7 +185,7 @@ class StorageService {
 
   Future<void> _saveKeyMetadata(Map<String, String> metadata) async {
     final basePath = await PathUtils.getAppBasePath();
-    final file = File('$basePath/key_names.json');
+    final file = File(p.join(basePath, 'key_names.json'));
     await file.writeAsString(jsonEncode(metadata));
   }
 
@@ -197,7 +198,7 @@ class StorageService {
         .listSync()
         .whereType<File>()
         .where((f) => f.path.endsWith('_pub.pem'))
-        .map((f) => f.path.split('/').last.replaceAll('_pub.pem', ''))
+        .map((f) => p.basename(f.path).replaceAll('_pub.pem', ''))
         .toList();
   }
 

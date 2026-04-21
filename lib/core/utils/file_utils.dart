@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:cross_file/cross_file.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:path/path.dart' as p;
 import 'path_utils.dart';
 
 class FileUtils {
@@ -48,7 +49,7 @@ class FileUtils {
   }
 
   static Future<String> getFileName(String path) async {
-    return path.split('/').last;
+    return p.basename(path);
   }
 
   static Future<int> getFileSize(String path) async {
@@ -74,7 +75,7 @@ class FileUtils {
 
   static Future<String?> saveFile(Uint8List data, String fileName) async {
     final tempDir = await PathUtils.getTempDir();
-    final filePath = '$tempDir/$fileName';
+    final filePath = p.join(tempDir, fileName);
     final file = File(filePath);
     await file.writeAsBytes(data);
     return filePath;

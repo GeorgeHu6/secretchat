@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:path_provider/path_provider.dart';
+import 'package:path/path.dart' as p;
 import 'constants.dart';
 
 class PathUtils {
@@ -11,7 +12,7 @@ class PathUtils {
     }
 
     final directory = await getApplicationDocumentsDirectory();
-    _basePath = '${directory.path}/${Constants.appDataDir}';
+    _basePath = p.join(directory.path, Constants.appDataDir);
 
     final baseDir = Directory(_basePath!);
     if (!await baseDir.exists()) {
@@ -23,7 +24,7 @@ class PathUtils {
 
   static Future<String> getKeysPath() async {
     final basePath = await getAppBasePath();
-    final keysPath = '$basePath/${Constants.keysDir}';
+    final keysPath = p.join(basePath, Constants.keysDir);
     final dir = Directory(keysPath);
     if (!await dir.exists()) {
       await dir.create(recursive: true);
@@ -33,8 +34,7 @@ class PathUtils {
 
   static Future<String> getContactsPath() async {
     final basePath = await getAppBasePath();
-    final contactsPath =
-        '$basePath/${Constants.keysDir}/${Constants.contactsDir}';
+    final contactsPath = p.join(basePath, Constants.keysDir, Constants.contactsDir);
     final dir = Directory(contactsPath);
     if (!await dir.exists()) {
       await dir.create(recursive: true);
@@ -44,17 +44,17 @@ class PathUtils {
 
   static Future<String> getKeyFilePath(String keyId) async {
     final keysPath = await getKeysPath();
-    return '$keysPath/$keyId.pem';
+    return p.join(keysPath, '$keyId.pem');
   }
 
   static Future<String> getContactPubKeyPath(String contactId) async {
     final contactsPath = await getContactsPath();
-    return '$contactsPath/${contactId}_pub.pem';
+    return p.join(contactsPath, '${contactId}_pub.pem');
   }
 
   static Future<String> getTempDir() async {
     final tempDir = await getTemporaryDirectory();
-    final scTempDir = '${tempDir.path}/${Constants.appDataDir}';
+    final scTempDir = p.join(tempDir.path, Constants.appDataDir);
     final dir = Directory(scTempDir);
     if (!await dir.exists()) {
       await dir.create(recursive: true);
