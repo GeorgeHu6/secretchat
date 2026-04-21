@@ -43,13 +43,13 @@ class SettingsScreen extends StatelessWidget {
           ListTile(
             leading: const Icon(Icons.info_outline),
             title: const Text('关于'),
-            subtitle: const Text('SecretChat v0.1.0'),
+            subtitle: const Text('SecretChat v1.0.0'),
             trailing: const Icon(Icons.chevron_right),
             onTap: () {
               showAboutDialog(
                 context: context,
                 applicationName: 'SecretChat',
-                applicationVersion: '0.1.0',
+                applicationVersion: '1.0.0',
                 applicationLegalese: '© 2026 SecretChat',
                 children: [
                   const SizedBox(height: 16),
@@ -130,7 +130,7 @@ class SettingsScreen extends StatelessWidget {
 
     final authProvider = context.read<AuthProvider>();
     final passwordVerified = await authProvider.ensureKeyUnlocked(context);
-    
+
     if (!passwordVerified) return;
 
     final finalConfirm = await showDialog<bool>(
@@ -162,16 +162,16 @@ class SettingsScreen extends StatelessWidget {
       keyProvider.clearState();
       contactProvider.clearState();
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('所有数据已清空')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('所有数据已清空')));
 
       Navigator.pushNamedAndRemoveUntil(context, '/', (route) => false);
     } catch (e) {
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('清空失败：$e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('清空失败：$e')));
       }
     }
   }
