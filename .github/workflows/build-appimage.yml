@@ -1,0 +1,250 @@
+name: Build Flutter AppImage
+
+on:
+  # 手动触发
+  workflow_dispatch:
+    inputs:
+      app_version:
+        description: '应用版本号 (例如: 1.0.0)'
+        required: false
+        default: '1.0.0'
+        type: string
+      target_os:
+        description: '构建目标系统'
+        required: true
+        default: 'both'
+        type: choice
+        options:
+          - both
+          - ubuntu-22.04
+          - ubuntu-24.04
+
+  # 也可以在打 Tag 时自动触发（可选，按需保留）
+  # push:
+  #   tags:
+  #     - 'v*'
+
+env:
+  FLUTTER_VERSION: '3.32.0'   # ← 按需修改为你使用的 Flutter 版本
+  APP_NAME: 'secretchat'  # ← 修改为你的应用名称（对应 pubspec.yaml 中的 name）
+
+jobs:
+  # ─────────────────────────────────────────
+  # 决策矩阵：根据用户选择确定要构建的系统
+  # ─────────────────────────────────────────
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+      - name: 设置构建矩阵
+        id: set-matrix
+        run: |
+          TARGET="${{ github.event.inputs.target_os || 'both' }}"
+          if [ "$TARGET" = "ubuntu-22.04" ]; then
+            echo 'matrix={"os":["ubuntu-22.04"]}' >> $GITHUB_OUTPUT
+          elif [ "$TARGET" = "ubuntu-24.04" ]; then
+            echo 'matrix={"os":["ubuntu-24.04"]}' >> $GITHUB_OUTPUT
+          else
+            echo 'matrix={"os":["ubuntu-22.04","ubuntu-24.04"]}' >> $GITHUB_OUTPUT
+          fi
+
+  # ─────────────────────────────────────────
+  # 主构建任务（矩阵策略）
+  # ─────────────────────────────────────────
+  build:
+    needs: prepare
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.prepare.outputs.matrix) }}
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      # 1. 检出代码
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      # 2. 安装系统依赖
+      - name: 安装系统依赖
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y \
+            clang cmake ninja-build pkg-config \
+            libgtk-3-dev liblzma-dev libstdc++-12-dev \
+            libglib2.0-dev libpango1.0-dev libcairo2-dev \
+            libgdk-pixbuf2.0-dev libatk1.0-dev \
+            fuse libfuse2 wget curl file \
+            desktop-file-utils libappimage-dev \
+            zsync
+
+      # 3. 设置 Flutter
+      - name: 设置 Flutter ${{ env.FLUTTER_VERSION }}
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      # 4. 安装 Flutter 依赖
+      - name: 安装 Flutter 依赖
+        run: flutter pub get
+
+      # 5. 运行测试（可选，注释掉可跳过）
+      # - name: 运行单元测试
+      #   run: flutter test
+
+      # 6. 构建 Linux Release
+      - name: 构建 Flutter Linux Release
+        run: flutter build linux --release
+
+      # 7. 下载 appimagetool
+      - name: 下载 appimagetool
+        run: |
+          wget -q "https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage" \
+            -O /usr/local/bin/appimagetool
+          chmod +x /usr/local/bin/appimagetool
+
+      # 8. 准备 AppDir 目录结构
+      - name: 准备 AppDir
+        run: |
+          APP_VERSION="${{ github.event.inputs.app_version || '1.0.0' }}"
+          OS_TAG="${{ matrix.os }}"
+          APP_DIR="$GITHUB_WORKSPACE/AppDir"
+
+          mkdir -p "$APP_DIR/usr/bin"
+          mkdir -p "$APP_DIR/usr/lib"
+          mkdir -p "$APP_DIR/usr/share/applications"
+          mkdir -p "$APP_DIR/usr/share/icons/hicolor/256x256/apps"
+
+          # 复制构建产物
+          cp -r build/linux/x64/release/bundle/* "$APP_DIR/usr/bin/"
+
+          # ── AppRun 启动脚本 ──────────────────────────────────
+          cat > "$APP_DIR/AppRun" << 'EOF'
+          #!/bin/bash
+          HERE="$(dirname "$(readlink -f "${0}")")"
+          export PATH="${HERE}/usr/bin:${PATH}"
+          export LD_LIBRARY_PATH="${HERE}/usr/lib:${LD_LIBRARY_PATH}"
+          export XDG_DATA_DIRS="${HERE}/usr/share:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
+          exec "${HERE}/usr/bin/${{ env.APP_NAME }}" "$@"
+          EOF
+          chmod +x "$APP_DIR/AppRun"
+
+          # ── .desktop 文件 ────────────────────────────────────
+          cat > "$APP_DIR/${{ env.APP_NAME }}.desktop" << EOF
+          [Desktop Entry]
+          Name=${{ env.APP_NAME }}
+          Exec=${{ env.APP_NAME }}
+          Icon=${{ env.APP_NAME }}
+          Type=Application
+          Categories=Utility;
+          EOF
+          cp "$APP_DIR/${{ env.APP_NAME }}.desktop" \
+             "$APP_DIR/usr/share/applications/${{ env.APP_NAME }}.desktop"
+
+          # ── 图标（优先使用项目内图标）────────────────────────
+          ICON_SRC=""
+          for f in \
+            "assets/icon.png" \
+            "assets/icons/icon.png" \
+            "linux/assets/icon.png" \
+            "assets/images/icon.png"; do
+            if [ -f "$f" ]; then
+              ICON_SRC="$f"
+              break
+            fi
+          done
+
+          if [ -n "$ICON_SRC" ]; then
+            cp "$ICON_SRC" "$APP_DIR/${{ env.APP_NAME }}.png"
+            cp "$ICON_SRC" "$APP_DIR/usr/share/icons/hicolor/256x256/apps/${{ env.APP_NAME }}.png"
+            echo "✅ 使用项目图标: $ICON_SRC"
+          else
+            # 生成占位图标（灰色方块）
+            python3 -c "
+          import struct, zlib
+          def png_1px(r,g,b):
+              def chunk(t,d):
+                  c=zlib.crc32(t+d)&0xffffffff
+                  return struct.pack('>I',len(d))+t+d+struct.pack('>I',c)
+              hdr=chunk(b'IHDR',struct.pack('>IIBBBBB',1,1,8,2,0,0,0))
+              raw=zlib.compress(b'\x00'+bytes([r,g,b]))
+              idat=chunk(b'IDAT',raw)
+              iend=chunk(b'IEND',b'')
+              return b'\x89PNG\r\n\x1a\n'+hdr+idat+iend
+          open('icon.png','wb').write(png_1px(100,100,100))
+          "
+            cp icon.png "$APP_DIR/${{ env.APP_NAME }}.png"
+            cp icon.png "$APP_DIR/usr/share/icons/hicolor/256x256/apps/${{ env.APP_NAME }}.png"
+            echo "⚠️  未找到项目图标，已使用占位图标"
+          fi
+
+      # 9. 打包为 AppImage
+      - name: 打包 AppImage
+        run: |
+          APP_VERSION="${{ github.event.inputs.app_version || '1.0.0' }}"
+          OS_TAG="${{ matrix.os }}"
+          OUTPUT_NAME="${{ env.APP_NAME }}-${APP_VERSION}-${OS_TAG}-x86_64.AppImage"
+
+          ARCH=x86_64 appimagetool \
+            --no-appstream \
+            "$GITHUB_WORKSPACE/AppDir" \
+            "$GITHUB_WORKSPACE/$OUTPUT_NAME"
+
+          echo "OUTPUT_NAME=$OUTPUT_NAME" >> $GITHUB_ENV
+          echo "✅ AppImage 构建完成: $OUTPUT_NAME"
+          ls -lh "$GITHUB_WORKSPACE/$OUTPUT_NAME"
+
+      # 10. 上传为 Artifact（可在 Actions 页面直接下载）
+      - name: 上传 AppImage Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.APP_NAME }}-${{ matrix.os }}
+          path: ${{ github.workspace }}/${{ env.OUTPUT_NAME }}
+          retention-days: 30
+
+  # ─────────────────────────────────────────
+  # 可选：创建 GitHub Release 并附上 AppImage
+  # 若不需要，可删除此 job
+  # ─────────────────────────────────────────
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    # 仅在手动触发且提供了版本号时才发布 Release
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.app_version != ''
+    permissions:
+      contents: write
+
+    steps:
+      - name: 下载所有构建产物
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts/
+
+      - name: 查看产物
+        run: find artifacts/ -type f | sort
+
+      - name: 创建 GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ github.event.inputs.app_version }}
+          name: Release v${{ github.event.inputs.app_version }}
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+          files: artifacts/**/*.AppImage
+          body: |
+            ## 📦 下载
+
+            | 系统 | 文件 |
+            |------|------|
+            | Ubuntu 22.04 | `*-ubuntu-22.04-x86_64.AppImage` |
+            | Ubuntu 24.04 | `*-ubuntu-24.04-x86_64.AppImage` |
+
+            ## 🚀 使用方法
+
+            ```bash
+            chmod +x *.AppImage
+            ./*.AppImage
+            ```
