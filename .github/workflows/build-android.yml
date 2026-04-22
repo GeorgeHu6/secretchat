@@ -56,11 +56,16 @@ jobs:
           channel: stable
           cache: true
 
-      # 4. 安装依赖
+      # 4. 配置 Gradle（移除本地 Java home 设置）
+      - name: 配置 Gradle
+        run: |
+          sed -i '/org.gradle.java.home/d' android/gradle.properties || true
+
+      # 5. 安装依赖
       - name: 安装 Flutter 依赖
         run: flutter pub get
 
-      # 5. 配置正式签名（仅当手动选择 sign_apk=true 时执行）
+      # 6. 配置正式签名（仅当手动选择 sign_apk=true 时执行）
       - name: 配置签名 Keystore
         if: ${{ github.event.inputs.sign_apk == 'true' }}
         run: |
@@ -74,7 +79,7 @@ jobs:
           EOF
           echo "✅ 正式签名配置完成"
 
-      # 6a. 构建分包 APK（按 ABI：arm64-v8a / armeabi-v7a / x86_64）
+      # 7a. 构建分包 APK（按 ABI：arm64-v8a / armeabi-v7a / x86_64）
       - name: 构建分包 APK
         if: ${{ github.event.inputs.build_type == 'apk-split' || github.event.inputs.build_type == 'both' || github.event.inputs.build_type == '' }}
         run: |
@@ -82,7 +87,7 @@ jobs:
           echo "✅ 分包 APK 构建完成"
           ls -lh build/app/outputs/flutter-apk/
 
-      # 6b. 构建合并 Fat APK
+      # 7b. 构建合并 Fat APK
       - name: 构建 Fat APK
         if: ${{ github.event.inputs.build_type == 'apk-fat' || github.event.inputs.build_type == 'both' }}
         run: |
@@ -90,7 +95,7 @@ jobs:
           echo "✅ Fat APK 构建完成"
           ls -lh build/app/outputs/flutter-apk/
 
-      # 7. 重命名并整理产物
+      # 8. 重命名并整理产物
       - name: 整理 APK 产物
         run: |
           VERSION="${{ github.event.inputs.app_version || '1.0.0' }}"
@@ -112,7 +117,7 @@ jobs:
           echo "--- 最终产物 ---"
           ls -lh "$DIST"
 
-      # 8. 上传 Artifact
+      # 9. 上传 Artifact
       - name: 上传 APK Artifact
         uses: actions/upload-artifact@v4
         with:
