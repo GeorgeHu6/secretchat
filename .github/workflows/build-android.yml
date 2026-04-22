@@ -1,0 +1,159 @@
+name: Build Flutter Android APK
+
+on:
+  # 手动触发
+  workflow_dispatch:
+    inputs:
+      app_version:
+        description: '应用版本号 (例如: 1.0.0)'
+        required: false
+        default: '1.0.0'
+        type: string
+      build_type:
+        description: '构建类型'
+        required: true
+        default: 'apk-split'
+        type: choice
+        options:
+          - apk-split    # 按 ABI 分包（推荐，体积小）
+          - apk-fat      # 合并单包（兼容所有设备）
+          - both         # 同时构建两种
+
+env:
+  FLUTTER_VERSION: '3.32.0'  # ← 修改为你使用的 Flutter 版本
+  APP_NAME: 'secretchat'     # ← 修改为 pubspec.yaml 中的 name
+  JAVA_VERSION: '17'         # Flutter 3.x 需要 Java 17
+
+jobs:
+  build-android:
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. 检出代码
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      # 2. 设置 Java
+      - name: 设置 Java ${{ env.JAVA_VERSION }}
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
+
+      # 3. 设置 Flutter
+      - name: 设置 Flutter ${{ env.FLUTTER_VERSION }}
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      # 4. 安装依赖
+      - name: 安装 Flutter 依赖
+        run: flutter pub get
+
+      # 5. 配置签名（使用 GitHub Secrets 中的 keystore）
+      #    若暂时不签名可跳过此步，直接用 debug 签名（不推荐发布）
+      - name: 配置签名 Keystore
+        if: ${{ secrets.KEYSTORE_BASE64 != '' }}
+        run: |
+          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > android/app/keystore.jks
+
+          cat > android/key.properties << EOF
+          storePassword=${{ secrets.KEYSTORE_PASSWORD }}
+          keyPassword=${{ secrets.KEY_PASSWORD }}
+          keyAlias=${{ secrets.KEY_ALIAS }}
+          storeFile=keystore.jks
+          EOF
+          echo "✅ 签名配置完成"
+
+      # 6a. 构建分包 APK（按 ABI：arm64-v8a / armeabi-v7a / x86_64）
+      - name: 构建分包 APK
+        if: ${{ github.event.inputs.build_type == 'apk-split' || github.event.inputs.build_type == 'both' || github.event.inputs.build_type == '' }}
+        run: |
+          flutter build apk --release --split-per-abi
+          echo "✅ 分包 APK 构建完成"
+          ls -lh build/flutter_apk/release/ 2>/dev/null || ls -lh build/app/outputs/flutter-apk/
+
+      # 6b. 构建合并 Fat APK
+      - name: 构建 Fat APK
+        if: ${{ github.event.inputs.build_type == 'apk-fat' || github.event.inputs.build_type == 'both' }}
+        run: |
+          flutter build apk --release
+          echo "✅ Fat APK 构建完成"
+          ls -lh build/app/outputs/flutter-apk/
+
+      # 7. 重命名并整理产物
+      - name: 整理 APK 产物
+        run: |
+          VERSION="${{ github.event.inputs.app_version || '1.0.0' }}"
+          APP="${{ env.APP_NAME }}"
+          SRC="build/app/outputs/flutter-apk"
+          DIST="dist"
+          mkdir -p "$DIST"
+
+          for apk in "$SRC"/*.apk; do
+            [ -f "$apk" ] || continue
+            filename=$(basename "$apk")
+            # 将官方文件名中的 app- 替换为 APP_NAME-VERSION-
+            newname="${filename/app-/${APP}-${VERSION}-}"
+            cp "$apk" "$DIST/$newname"
+            echo "📦 $newname ($(du -sh "$DIST/$newname" | cut -f1))"
+          done
+
+          echo "--- 最终产物 ---"
+          ls -lh "$DIST"
+
+      # 8. 上传 Artifact
+      - name: 上传 APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.APP_NAME }}-android-apk
+          path: dist/*.apk
+          retention-days: 30
+
+  # ─────────────────────────────────────────
+  # 创建 GitHub Release
+  # ─────────────────────────────────────────
+  release:
+    needs: build-android
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.app_version != ''
+    permissions:
+      contents: write
+
+    steps:
+      - name: 下载构建产物
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts/
+
+      - name: 查看产物
+        run: find artifacts/ -type f | sort
+
+      - name: 创建 GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ github.event.inputs.app_version }}
+          name: Release v${{ github.event.inputs.app_version }}
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+          files: artifacts/**/*.apk
+          body: |
+            ## 📱 Android 下载
+
+            | 文件 | 适用设备 |
+            |------|----------|
+            | `*arm64-v8a-release.apk` | 主流现代手机（64位，推荐） |
+            | `*armeabi-v7a-release.apk` | 旧款手机（32位） |
+            | `*x86_64-release.apk` | 模拟器 / x86 设备 |
+            | `*fat-release.apk` | 通用包（兼容所有设备，体积较大） |
+
+            > 不确定下哪个？选 `arm64-v8a` 版本，覆盖 95% 以上的现代 Android 设备。
+
+            ## 🚀 安装说明
+
+            1. 下载对应的 `.apk` 文件
+            2. 在手机上打开设置 → 安全 → 允许安装未知来源应用
+            3. 点击 APK 文件安装
