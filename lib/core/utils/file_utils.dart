@@ -58,7 +58,7 @@ class FileUtils {
   }
 
   static Future<XFile?> pickFile() async {
-    final result = await FilePicker.platform.pickFiles(
+    final result = await FilePicker.pickFiles(
       allowMultiple: false,
       type: FileType.any,
     );
