@@ -1,19 +1,29 @@
 import 'dart:io';
+import 'dart:typed_data';
 import 'package:path/path.dart' as p;
 import '../utils/path_utils.dart';
 import '../crypto/models/encrypted_message.dart';
+import '../crypto/data_encryption.dart';
 
 class MessageStorageService {
-  Future<void> saveMessage(String contactId, EncryptedMessage message) async {
+  Future<void> saveMessage(
+    String contactId,
+    EncryptedMessage message,
+    Uint8List encryptionKey,
+  ) async {
     final messagesPath = await _getMessagesPath(contactId);
     final fileName = '${message.metadata.messageId}.enc';
     final file = File(p.join(messagesPath, fileName));
 
     final encoded = message.encode();
-    await file.writeAsString(encoded);
+    final encrypted = DataEncryption.encryptString(encoded, encryptionKey);
+    await file.writeAsString(encrypted);
   }
 
-  Future<List<EncryptedMessage>> loadMessages(String contactId) async {
+  Future<List<EncryptedMessage>> loadMessages(
+    String contactId,
+    Uint8List encryptionKey,
+  ) async {
     final messagesPath = await _getMessagesPath(contactId);
     final dir = Directory(messagesPath);
 
@@ -26,8 +36,9 @@ class MessageStorageService {
 
     for (final file in files) {
       try {
-        final encoded = await file.readAsString();
-        final message = EncryptedMessage.decode(encoded);
+        final encrypted = await file.readAsString();
+        final decrypted = DataEncryption.decryptString(encrypted, encryptionKey);
+        final message = EncryptedMessage.decode(decrypted);
         messages.add(message);
       } catch (e) {
         continue;

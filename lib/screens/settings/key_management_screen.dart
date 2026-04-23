@@ -6,63 +6,97 @@ import '../../providers/auth_provider.dart';
 import '../../core/crypto/models/key_pair.dart';
 import '../../widgets/qr_display_dialog.dart';
 
-class KeyManagementScreen extends StatelessWidget {
+class KeyManagementScreen extends StatefulWidget {
   const KeyManagementScreen({super.key});
+
+  @override
+  State<KeyManagementScreen> createState() => _KeyManagementScreenState();
+}
+
+class _KeyManagementScreenState extends State<KeyManagementScreen> {
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _loadKeyPairs();
+    });
+  }
+
+  Future<void> _loadKeyPairs() async {
+    final authProvider = context.read<AuthProvider>();
+
+    if (!authProvider.isKeyUnlocked) {
+      final unlocked = await authProvider.ensureKeyUnlocked(context);
+      if (!unlocked) {
+        if (mounted) Navigator.pop(context);
+        return;
+      }
+    }
+
+    final keyProvider = context.read<KeyProvider>();
+    await keyProvider.loadKeyPairs();
+    setState(() => _isLoading = false);
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('密钥管理')),
-      body: Consumer<KeyProvider>(
-        builder: (context, keyProvider, child) {
-          return ListView(
-            padding: const EdgeInsets.all(16),
-            children: [
-              _buildSection(
-                context,
-                title: '我的密钥对',
-                children: [
-                  if (keyProvider.keyPairs.isEmpty)
-                    const ListTile(
-                      title: Text('暂无密钥对'),
-                      subtitle: Text('点击下方按钮生成密钥'),
-                    )
-                  else
-                    ...keyProvider.keyPairs.map(
-                      (keyPair) =>
-                          _buildKeyPairTile(context, keyProvider, keyPair),
-                    ),
-                  const SizedBox(height: 16),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: ElevatedButton.icon(
-                          onPressed: () =>
-                              _generateKeyPair(context, keyProvider),
-                          icon: const Icon(Icons.add),
-                          label: const Text('生成密钥'),
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: ElevatedButton.icon(
-                          onPressed: () => _importKeyPair(context, keyProvider),
-                          icon: const Icon(Icons.file_download),
-                          label: const Text('导入私钥'),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.blue.shade700,
-                            foregroundColor: Colors.white,
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : Consumer<KeyProvider>(
+              builder: (context, keyProvider, child) {
+                return ListView(
+                  padding: const EdgeInsets.all(16),
+                  children: [
+                    _buildSection(
+                      context,
+                      title: '我的密钥对',
+                      children: [
+                        if (keyProvider.keyPairs.isEmpty)
+                          const ListTile(
+                            title: Text('暂无密钥对'),
+                            subtitle: Text('点击下方按钮生成密钥'),
+                          )
+                        else
+                          ...keyProvider.keyPairs.map(
+                            (keyPair) =>
+                                _buildKeyPairTile(context, keyProvider, keyPair),
                           ),
+                        const SizedBox(height: 16),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: ElevatedButton.icon(
+                                onPressed: () =>
+                                    _generateKeyPair(context, keyProvider),
+                                icon: const Icon(Icons.add),
+                                label: const Text('生成密钥'),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: ElevatedButton.icon(
+                                onPressed: () =>
+                                    _importKeyPair(context, keyProvider),
+                                icon: const Icon(Icons.file_download),
+                                label: const Text('导入私钥'),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.blue.shade700,
+                                  foregroundColor: Colors.white,
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ],
-          );
-        },
-      ),
+                      ],
+                    ),
+                  ],
+                );
+              },
+            ),
     );
   }
 

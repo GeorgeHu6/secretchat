@@ -48,9 +48,13 @@ class _AuthWrapperState extends State<AuthWrapper> {
   @override
   void initState() {
     super.initState();
-    // 启动时检查是否已设置密码
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      context.read<AuthProvider>().checkSetup();
+      final authProvider = context.read<AuthProvider>();
+      authProvider.checkSetup().then((_) {
+        final storageService = authProvider.storageService;
+        context.read<KeyProvider>().setStorageService(storageService);
+        context.read<ContactProvider>().setStorageService(storageService);
+      });
     });
   }
 
@@ -79,10 +83,8 @@ class _AuthWrapperState extends State<AuthWrapper> {
       return const PasswordSetupScreen();
     }
 
-    // 已设置密码 → 直接进入主界面（密钥未解锁，需要操作时验证）
     WidgetsBinding.instance.addPostFrameCallback((_) {
       context.read<ContactProvider>().loadContacts();
-      context.read<KeyProvider>().loadKeyPairs();
     });
 
     return const HomeScreen();

@@ -7,9 +7,13 @@ import '../core/storage/file_storage.dart';
 import '../core/utils/path_utils.dart';
 
 class ContactProvider extends ChangeNotifier {
-  final StorageService _storageService = StorageService();
+  StorageService? _storageService;
   final KeyManager _keyManager = KeyManager();
   final Map<String, Contact> _contacts = {};
+
+  void setStorageService(StorageService storageService) {
+    _storageService = storageService;
+  }
 
   List<Contact> get contacts => _contacts.values.toList();
 
@@ -23,15 +27,16 @@ class ContactProvider extends ChangeNotifier {
         final content = await contactsFile.readAsString();
         contactsData = jsonDecode(content) as Map<String, dynamic>;
       } catch (e) {
-        // Ignore parse errors
       }
     }
 
-    final contactIds = await _storageService.listContactPublicKeys();
+    if (_storageService == null) return;
+
+    final contactIds = await _storageService!.listContactPublicKeys();
     _contacts.clear();
 
     for (final id in contactIds) {
-      final publicKeyPem = await _storageService.loadContactPublicKey(id);
+      final publicKeyPem = await _storageService!.loadContactPublicKey(id);
       if (publicKeyPem != null) {
         final contactData = contactsData[id] as Map<String, dynamic>?;
         _contacts[id] = Contact(
@@ -55,6 +60,8 @@ class ContactProvider extends ChangeNotifier {
     String publicKeyPem, {
     String? privateKeyId,
   }) async {
+    if (_storageService == null) return;
+
     final id = name;
     final contact = Contact(
       id: id,
@@ -65,15 +72,17 @@ class ContactProvider extends ChangeNotifier {
     );
 
     _contacts[id] = contact;
-    await _storageService.saveContactPublicKey(id, contact.publicKeyPem!);
+    await _storageService!.saveContactPublicKey(id, contact.publicKeyPem!);
     await _saveContactsMetadata();
     notifyListeners();
   }
 
   Future<void> updateContact(Contact contact) async {
+    if (_storageService == null) return;
+
     _contacts[contact.id] = contact;
     if (contact.publicKeyPem != null) {
-      await _storageService.saveContactPublicKey(
+      await _storageService!.saveContactPublicKey(
         contact.id,
         contact.publicKeyPem!,
       );
@@ -83,8 +92,10 @@ class ContactProvider extends ChangeNotifier {
   }
 
   Future<void> deleteContact(String contactId) async {
+    if (_storageService == null) return;
+
     _contacts.remove(contactId);
-    await _storageService.deleteContactPublicKey(contactId);
+    await _storageService!.deleteContactPublicKey(contactId);
     await _saveContactsMetadata();
     notifyListeners();
   }

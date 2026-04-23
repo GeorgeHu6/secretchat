@@ -11,6 +11,7 @@ class AuthProvider extends ChangeNotifier {
   bool get hasSetup => _hasSetup;
   bool get isLoading => _isLoading;
   bool get isKeyUnlocked => _isKeyUnlocked;
+  StorageService get storageService => _storageService;
 
   Future<void> checkSetup() async {
     _isLoading = true;

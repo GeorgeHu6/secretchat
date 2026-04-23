@@ -51,12 +51,43 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
   @override
   void initState() {
     super.initState();
-    _checkHistoryMessages();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _checkHistoryMessages();
+    });
   }
 
   Future<void> _checkHistoryMessages() async {
+    final authProvider = context.read<AuthProvider>();
+
+    if (!authProvider.isKeyUnlocked) {
+      final unlocked = await authProvider.ensureKeyUnlocked(context);
+      if (!unlocked) {
+        setState(() {
+          _hasHistoryMessages = false;
+          _needsUnlock = false;
+        });
+        return;
+      }
+    }
+
+    final key = authProvider.storageService.derivedKey;
+
+    if (key == null) {
+      setState(() {
+        _hasHistoryMessages = false;
+        _needsUnlock = false;
+      });
+      return;
+    }
+
+    final keyProvider = context.read<KeyProvider>();
+    if (keyProvider.keyPairs.isEmpty) {
+      await keyProvider.loadKeyPairs();
+    }
+
     final encryptedMessages = await _messageStorage.loadMessages(
       widget.contact.id,
+      key,
     );
 
     if (encryptedMessages.isEmpty) {
@@ -67,29 +98,19 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
       return;
     }
 
-    final authProvider = context.read<AuthProvider>();
-    final keyProvider = context.read<KeyProvider>();
-
-    if (authProvider.isKeyUnlocked) {
-      if (keyProvider.keyPairs.isEmpty) {
-        await keyProvider.loadKeyPairs();
-      }
-
-      final keyPair = _getKeyPairForContact(keyProvider);
-      if (keyPair != null && keyPair.privateKeyPem != null) {
-        setState(() {
-          _hasHistoryMessages = true;
-          _needsUnlock = false;
-        });
-        await _loadHistoryMessages();
-        return;
-      }
+    final keyPair = _getKeyPairForContact(keyProvider);
+    if (keyPair != null && keyPair.privateKeyPem != null) {
+      setState(() {
+        _hasHistoryMessages = true;
+        _needsUnlock = false;
+      });
+      await _loadHistoryMessages();
+    } else {
+      setState(() {
+        _hasHistoryMessages = true;
+        _needsUnlock = true;
+      });
     }
-
-    setState(() {
-      _hasHistoryMessages = true;
-      _needsUnlock = true;
-    });
   }
 
   Future<void> _unlockAndLoadHistory() async {
@@ -112,8 +133,17 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     setState(() => _isDecryptingHistory = true);
 
     try {
+      final authProvider = context.read<AuthProvider>();
+      final key = authProvider.storageService.derivedKey;
+
+      if (key == null) {
+        setState(() => _isDecryptingHistory = false);
+        return;
+      }
+
       final encryptedMessages = await _messageStorage.loadMessages(
         widget.contact.id,
+        key,
       );
 
       if (encryptedMessages.isEmpty) {
@@ -599,7 +629,14 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
         ),
       );
 
-      await _messageStorage.saveMessage(widget.contact.id, savedMessage);
+      final encryptionKey = authProvider.storageService.derivedKey;
+      if (encryptionKey != null) {
+        await _messageStorage.saveMessage(
+          widget.contact.id,
+          savedMessage,
+          encryptionKey,
+        );
+      }
 
       setState(() {
         _messages.add(
@@ -842,7 +879,10 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
         return;
       }
 
-      await _messageStorage.saveMessage(widget.contact.id, message);
+      final encryptionKey = authProvider.storageService.derivedKey;
+      if (encryptionKey != null) {
+        await _messageStorage.saveMessage(widget.contact.id, message, encryptionKey);
+      }
 
       final decrypted = await _encryptionService.decryptText(
         message,

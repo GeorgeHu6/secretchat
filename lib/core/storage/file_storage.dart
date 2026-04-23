@@ -6,12 +6,14 @@ import 'package:pointycastle/export.dart';
 import 'package:path/path.dart' as p;
 import '../utils/path_utils.dart';
 import '../utils/constants.dart';
+import '../crypto/data_encryption.dart';
 
 class StorageService {
   final Random _random = Random.secure();
   Uint8List? _derivedKey;
 
   bool get isUnlocked => _derivedKey != null;
+  Uint8List? get derivedKey => _derivedKey;
 
   Future<void> initializeStorage(String password) async {
     final salt = _generateSalt();
@@ -96,15 +98,30 @@ class StorageService {
   }
 
   Future<void> saveKeyPair(String keyId, String pemData) async {
+    if (_derivedKey == null) {
+      throw Exception('Storage not unlocked');
+    }
+
+    final encrypted = DataEncryption.encryptString(pemData, _derivedKey!);
     final filePath = await PathUtils.getKeyFilePath(keyId);
-    await File(filePath).writeAsString(pemData);
+    await File(filePath).writeAsString(encrypted);
   }
 
   Future<String?> loadKeyPair(String keyId) async {
+    if (_derivedKey == null) {
+      throw Exception('Storage not unlocked');
+    }
+
     final filePath = await PathUtils.getKeyFilePath(keyId);
     final file = File(filePath);
     if (!await file.exists()) return null;
-    return await file.readAsString();
+
+    final encrypted = await file.readAsString();
+    try {
+      return DataEncryption.decryptString(encrypted, _derivedKey!);
+    } catch (e) {
+      return null;
+    }
   }
 
   Future<void> deleteKeyPair(String keyId) async {
@@ -174,9 +191,14 @@ class StorageService {
 
     if (!await file.exists()) return {};
 
+    if (_derivedKey == null) {
+      return {};
+    }
+
     try {
-      final content = await file.readAsString();
-      final json = jsonDecode(content) as Map<String, dynamic>;
+      final encrypted = await file.readAsString();
+      final decrypted = DataEncryption.decryptString(encrypted, _derivedKey!);
+      final json = jsonDecode(decrypted) as Map<String, dynamic>;
       return json.map((k, v) => MapEntry(k, v.toString()));
     } catch (e) {
       return {};
@@ -184,9 +206,15 @@ class StorageService {
   }
 
   Future<void> _saveKeyMetadata(Map<String, String> metadata) async {
+    if (_derivedKey == null) {
+      throw Exception('Storage not unlocked');
+    }
+
     final basePath = await PathUtils.getAppBasePath();
     final file = File(p.join(basePath, 'key_names.json'));
-    await file.writeAsString(jsonEncode(metadata));
+    final plaintext = jsonEncode(metadata);
+    final encrypted = DataEncryption.encryptString(plaintext, _derivedKey!);
+    await file.writeAsString(encrypted);
   }
 
   Future<List<String>> listContactPublicKeys() async {

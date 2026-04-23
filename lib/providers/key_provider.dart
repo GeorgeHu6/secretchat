@@ -4,21 +4,27 @@ import '../core/storage/file_storage.dart';
 import '../core/crypto/models/key_pair.dart';
 
 class KeyProvider extends ChangeNotifier {
-  final StorageService _storageService = StorageService();
+  StorageService? _storageService;
   final KeyManager _keyManager = KeyManager();
   final Map<String, KeyPair> _keyPairs = {};
   KeyPair? _defaultKeyPair;
+
+  void setStorageService(StorageService storageService) {
+    _storageService = storageService;
+  }
 
   List<KeyPair> get keyPairs => _keyPairs.values.toList();
   KeyPair? get defaultKeyPair => _defaultKeyPair;
 
   Future<void> loadKeyPairs() async {
-    final keyIds = await _storageService.listKeyPairs();
+    if (_storageService == null) return;
+
+    final keyIds = await _storageService!.listKeyPairs();
     _keyPairs.clear();
 
     for (final id in keyIds) {
-      final pem = await _storageService.loadKeyPair(id);
-      final name = await _storageService.loadKeyName(id);
+      final pem = await _storageService!.loadKeyPair(id);
+      final name = await _storageService!.loadKeyName(id);
       if (pem != null) {
         try {
           final parsedKeyPair = _keyManager.parseRsaPrivateKeyPem(pem);
@@ -33,7 +39,6 @@ class KeyProvider extends ChangeNotifier {
           );
           _keyPairs[id] = keyPair;
         } catch (e) {
-          // Skip invalid keys
         }
       }
     }
@@ -45,8 +50,12 @@ class KeyProvider extends ChangeNotifier {
   }
 
   Future<KeyPair> generateKeyPair({int keySize = 2048}) async {
+    if (_storageService == null) {
+      throw Exception('Storage not initialized');
+    }
+
     final keyPair = await _keyManager.generateRsaKeyPair(keySize: keySize);
-    await _storageService.saveKeyPair(keyPair.id, keyPair.privateKeyPem!);
+    await _storageService!.saveKeyPair(keyPair.id, keyPair.privateKeyPem!);
     _keyPairs[keyPair.id] = keyPair;
     _defaultKeyPair = keyPair;
     notifyListeners();
@@ -54,6 +63,10 @@ class KeyProvider extends ChangeNotifier {
   }
 
   Future<void> importKeyPair(String pem) async {
+    if (_storageService == null) {
+      throw Exception('Storage not initialized');
+    }
+
     final keyPair = _keyManager.parseRsaPrivateKeyPem(pem);
     final updatedKeyPair = KeyPair(
       id: keyPair.id,
@@ -63,15 +76,17 @@ class KeyProvider extends ChangeNotifier {
       privateKeyPem: pem,
       createdAt: keyPair.createdAt,
     );
-    await _storageService.saveKeyPair(keyPair.id, pem);
+    await _storageService!.saveKeyPair(keyPair.id, pem);
     _keyPairs[keyPair.id] = updatedKeyPair;
     notifyListeners();
   }
 
   Future<void> deleteKeyPair(String keyId) async {
+    if (_storageService == null) return;
+
     _keyPairs.remove(keyId);
-    await _storageService.deleteKeyPair(keyId);
-    await _storageService.deleteKeyName(keyId);
+    await _storageService!.deleteKeyPair(keyId);
+    await _storageService!.deleteKeyName(keyId);
     if (_defaultKeyPair?.id == keyId) {
       _defaultKeyPair = _keyPairs.isNotEmpty ? _keyPairs.values.first : null;
     }
@@ -79,10 +94,12 @@ class KeyProvider extends ChangeNotifier {
   }
 
   Future<void> renameKeyPair(String keyId, String newName) async {
+    if (_storageService == null) return;
+
     final keyPair = _keyPairs[keyId];
     if (keyPair == null) return;
 
-    await _storageService.saveKeyName(keyId, newName);
+    await _storageService!.saveKeyName(keyId, newName);
 
     final updatedKeyPair = keyPair.copyWith(name: newName);
     _keyPairs[keyId] = updatedKeyPair;
