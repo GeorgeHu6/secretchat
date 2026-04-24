@@ -43,13 +43,13 @@ class SettingsScreen extends StatelessWidget {
           ListTile(
             leading: const Icon(Icons.info_outline),
             title: const Text('关于'),
-            subtitle: const Text('SecretChat v1.0.0'),
+            subtitle: const Text('SecretChat v1.5.0'),
             trailing: const Icon(Icons.chevron_right),
             onTap: () {
               showAboutDialog(
                 context: context,
                 applicationName: 'SecretChat',
-                applicationVersion: '1.0.0',
+                applicationVersion: '1.5.0',
                 applicationLegalese: '© 2026 SecretChat',
                 children: [
                   const SizedBox(height: 16),
