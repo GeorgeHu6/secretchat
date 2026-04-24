@@ -62,10 +62,12 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     if (!authProvider.isKeyUnlocked) {
       final unlocked = await authProvider.ensureKeyUnlocked(context);
       if (!unlocked) {
-        setState(() {
-          _hasHistoryMessages = false;
-          _needsUnlock = false;
-        });
+        if (mounted) {
+          setState(() {
+            _hasHistoryMessages = false;
+            _needsUnlock = false;
+          });
+        }
         return;
       }
     }
@@ -73,10 +75,12 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     final key = authProvider.storageService.derivedKey;
 
     if (key == null) {
-      setState(() {
-        _hasHistoryMessages = false;
-        _needsUnlock = false;
-      });
+      if (mounted) {
+        setState(() {
+          _hasHistoryMessages = false;
+          _needsUnlock = false;
+        });
+      }
       return;
     }
 
@@ -91,25 +95,31 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     );
 
     if (encryptedMessages.isEmpty) {
-      setState(() {
-        _hasHistoryMessages = false;
-        _needsUnlock = false;
-      });
+      if (mounted) {
+        setState(() {
+          _hasHistoryMessages = false;
+          _needsUnlock = false;
+        });
+      }
       return;
     }
 
     final keyPair = _getKeyPairForContact(keyProvider);
     if (keyPair != null && keyPair.privateKeyPem != null) {
-      setState(() {
-        _hasHistoryMessages = true;
-        _needsUnlock = false;
-      });
+      if (mounted) {
+        setState(() {
+          _hasHistoryMessages = true;
+          _needsUnlock = false;
+        });
+      }
       await _loadHistoryMessages();
     } else {
-      setState(() {
-        _hasHistoryMessages = true;
-        _needsUnlock = true;
-      });
+      if (mounted) {
+        setState(() {
+          _hasHistoryMessages = true;
+          _needsUnlock = true;
+        });
+      }
     }
   }
 
@@ -117,7 +127,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     final authProvider = context.read<AuthProvider>();
     final unlocked = await authProvider.ensureKeyUnlocked(context);
 
-    if (!unlocked) return;
+    if (!unlocked || !mounted) return;
 
     final keyProvider = context.read<KeyProvider>();
     await keyProvider.loadKeyPairs();
@@ -130,6 +140,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
   }
 
   Future<void> _loadHistoryMessages() async {
+    if (!mounted) return;
     setState(() => _isDecryptingHistory = true);
 
     try {
@@ -137,7 +148,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
       final key = authProvider.storageService.derivedKey;
 
       if (key == null) {
-        setState(() => _isDecryptingHistory = false);
+        if (mounted) setState(() => _isDecryptingHistory = false);
         return;
       }
 
@@ -147,10 +158,12 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
       );
 
       if (encryptedMessages.isEmpty) {
-        setState(() {
-          _isDecryptingHistory = false;
-          _hasHistoryMessages = false;
-        });
+        if (mounted) {
+          setState(() {
+            _isDecryptingHistory = false;
+            _hasHistoryMessages = false;
+          });
+        }
         return;
       }
 
@@ -158,11 +171,11 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
       final keyPair = _getKeyPairForContact(keyProvider);
 
       if (keyPair == null || keyPair.privateKeyPem == null) {
-        setState(() {
-          _isDecryptingHistory = false;
-          _messages.clear();
-        });
         if (mounted) {
+          setState(() {
+            _isDecryptingHistory = false;
+            _messages.clear();
+          });
           ScaffoldMessenger.of(
             context,
           ).showSnackBar(const SnackBar(content: Text('密钥未准备好，请返回后重试')));
@@ -185,39 +198,43 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
             senderPublicKeyPem,
           );
 
-          setState(() {
-            _messages.add(
-              _MessageItem(
-                content: decrypted,
-                storedMessage: msg,
-                isSent: isSent,
-                type: msg.metadata.type,
-                verified: true,
-                signatureVerified:
-                    senderPublicKeyPem.isNotEmpty && msg.signature != null,
-                fileName: msg.metadata.fileName,
-              ),
-            );
-          });
+          if (mounted) {
+            setState(() {
+              _messages.add(
+                _MessageItem(
+                  content: decrypted,
+                  storedMessage: msg,
+                  isSent: isSent,
+                  type: msg.metadata.type,
+                  verified: true,
+                  signatureVerified:
+                      senderPublicKeyPem.isNotEmpty && msg.signature != null,
+                  fileName: msg.metadata.fileName,
+                ),
+              );
+            });
+          }
         } catch (e) {
           final msgId = msg.metadata.messageId;
-          setState(() {
-            _messages.add(
-              _MessageItem(
-                storedMessage: msg,
-                isSent: msgId.startsWith('sent_'),
-                type: msg.metadata.type,
-                verified: false,
-                signatureVerified: false,
-                fileName: msg.metadata.fileName,
-                decryptError: '解密失败',
-              ),
-            );
-          });
+          if (mounted) {
+            setState(() {
+              _messages.add(
+                _MessageItem(
+                  storedMessage: msg,
+                  isSent: msgId.startsWith('sent_'),
+                  type: msg.metadata.type,
+                  verified: false,
+                  signatureVerified: false,
+                  fileName: msg.metadata.fileName,
+                  decryptError: '解密失败',
+                ),
+              );
+            });
+          }
         }
       }
     } finally {
-      setState(() => _isDecryptingHistory = false);
+      if (mounted) setState(() => _isDecryptingHistory = false);
     }
   }
 
@@ -750,24 +767,28 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
   }
 
   Future<void> _copyEncryptedMessage(_MessageItem message) async {
-    if (message.encryptedMessage == null) return;
+    final encrypted = message.encryptedMessage ?? message.storedMessage;
+    if (encrypted == null) return;
 
     try {
-      final encoded = message.encryptedMessage!.encode();
+      final encoded = encrypted.encode();
       await Clipboard.setData(ClipboardData(text: encoded));
 
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('密文已复制到剪贴板')));
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('密文已复制到剪贴板')));
+      }
     } catch (e) {
-      _showError('复制失败：$e');
+      if (mounted) _showError('复制失败：$e');
     }
   }
 
   Future<void> _showEncryptedMessage(_MessageItem message) async {
-    if (message.encryptedMessage == null) return;
+    final encrypted = message.encryptedMessage ?? message.storedMessage;
+    if (encrypted == null) return;
 
-    final encoded = message.encryptedMessage!.encode();
+    final encoded = encrypted.encode();
 
     await showDialog(
       context: context,
@@ -841,26 +862,32 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
       final text = clipboardData?.text;
 
       if (text == null || text.trim().isEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('剪贴板中没有文本内容')),
-        );
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('剪贴板中没有文本内容')),
+          );
+        }
         return;
       }
 
       final trimmedText = text.trim();
       
       if (!trimmedText.startsWith('eyJ') && !trimmedText.contains('encryptedContent')) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('剪贴板内容不是有效的加密消息格式')),
-        );
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('剪贴板内容不是有效的加密消息格式')),
+          );
+        }
         return;
       }
 
       await _processImportedMessage(trimmedText);
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('导入失败：$e')),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('导入失败：$e')),
+        );
+      }
     }
   }
 
@@ -889,6 +916,8 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
         keyPair.privateKeyPem!,
         widget.contact.publicKeyPem ?? '',
       );
+
+      if (!mounted) return;
 
       setState(() {
         _messages.add(

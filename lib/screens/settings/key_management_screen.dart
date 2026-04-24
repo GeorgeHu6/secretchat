@@ -171,28 +171,19 @@ class _KeyManagementScreenState extends State<KeyManagementScreen> {
 
     if (!unlocked) return;
 
-    final confirm = await showDialog<bool>(
+    final result = await showDialog<Map<String, dynamic>>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('生成密钥对'),
-        content: const Text('确定要生成新的 RSA-2048 密钥对吗？'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('取消'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('生成'),
-          ),
-        ],
-      ),
+      builder: (context) => _GenerateKeyDialog(),
     );
 
-    if (confirm != true) return;
+    if (result == null) return;
 
     try {
-      await provider.generateKeyPair();
+      if (result['algorithm'] == 'ecc') {
+        await provider.generateEccKeyPair();
+      } else {
+        await provider.generateKeyPair(keySize: result['keySize'] ?? 2048);
+      }
       if (context.mounted) {
         ScaffoldMessenger.of(
           context,
@@ -590,6 +581,77 @@ class _ExportKeyDialog extends StatelessWidget {
           },
           icon: const Icon(Icons.copy),
           label: const Text('复制'),
+        ),
+      ],
+    );
+  }
+}
+
+class _GenerateKeyDialog extends StatefulWidget {
+  @override
+  State<_GenerateKeyDialog> createState() => _GenerateKeyDialogState();
+}
+
+class _GenerateKeyDialogState extends State<_GenerateKeyDialog> {
+  String _algorithm = 'rsa';
+  int _rsaKeySize = 2048;
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('生成密钥对'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Text('选择加密算法：'),
+          const SizedBox(height: 12),
+          RadioListTile<String>(
+            title: const Text('RSA-2048'),
+            subtitle: const Text('传统算法，兼容性好'),
+            value: 'rsa',
+            groupValue: _algorithm,
+            onChanged: (value) => setState(() => _algorithm = value!),
+          ),
+          if (_algorithm == 'rsa')
+            Padding(
+              padding: const EdgeInsets.only(left: 16),
+              child: Row(
+                children: [
+                  const Text('密钥长度：'),
+                  const SizedBox(width: 8),
+                  DropdownButton<int>(
+                    value: _rsaKeySize,
+                    items: [2048, 3072, 4096].map((size) {
+                      return DropdownMenuItem(
+                        value: size,
+                        child: Text('$size 位'),
+                      );
+                    }).toList(),
+                    onChanged: (value) => setState(() => _rsaKeySize = value!),
+                  ),
+                ],
+              ),
+            ),
+          RadioListTile<String>(
+            title: const Text('ECC-P256'),
+            subtitle: const Text('椭圆曲线，更高效'),
+            value: 'ecc',
+            groupValue: _algorithm,
+            onChanged: (value) => setState(() => _algorithm = value!),
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('取消'),
+        ),
+        ElevatedButton(
+          onPressed: () => Navigator.pop(context, {
+            'algorithm': _algorithm,
+            'keySize': _rsaKeySize,
+          }),
+          child: const Text('生成'),
         ),
       ],
     );

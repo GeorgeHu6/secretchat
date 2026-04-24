@@ -53,7 +53,98 @@ class KeyManager {
   }
 
   Future<KeyPair> generateEccKeyPair() async {
-    throw UnimplementedError('ECC generation not implemented');
+    final secureRandom = SecureRandom('Fortuna');
+    final seed = Uint8List.fromList(
+      List.generate(32, (_) => _random.nextInt(256)),
+    );
+    secureRandom.seed(KeyParameter(seed));
+
+    final keyGenerator = ECKeyGenerator();
+    keyGenerator.init(
+      ParametersWithRandom(
+        ECKeyGeneratorParameters(ECCurve_secp256r1()),
+        secureRandom,
+      ),
+    );
+
+    final keyPair = keyGenerator.generateKeyPair();
+    final publicKey = keyPair.publicKey as ECPublicKey;
+    final privateKey = keyPair.privateKey as ECPrivateKey;
+
+    final publicKeyPem = _encodeEcPublicKeyPem(publicKey);
+    final privateKeyPem = _encodeEcPrivateKeyPem(privateKey);
+
+    return KeyPair(
+      id: generateKeyId(),
+      algorithm: KeyAlgorithm.ecc,
+      keySize: 256,
+      publicKeyPem: publicKeyPem,
+      privateKeyPem: privateKeyPem,
+      createdAt: DateTime.now(),
+    );
+  }
+
+  String _encodeEcPublicKeyPem(ECPublicKey publicKey) {
+    final point = publicKey.Q!;
+    final encodedPoint = point.getEncoded(false);
+
+    final oidBytes = [
+      0x06, 0x07, 0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x02, 0x01,
+    ];
+    final curveOidBytes = [
+      0x06, 0x08, 0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x03, 0x01, 0x07,
+    ];
+    final algorithmId = _encodeDerSequence([...oidBytes, ...curveOidBytes]);
+
+    final bitStringContent = [0x00, ...encodedPoint];
+    final bitString = _encodeDerBitString(bitStringContent);
+
+    final spkiContent = [...algorithmId, ...bitString];
+    final spkiSequence = _encodeDerSequence(spkiContent);
+
+    final base64Str = base64Encode(spkiSequence);
+    return _formatPem(
+      base64Str,
+      Constants.pemHeaderEcPublicKey,
+      Constants.pemFooterEcPublicKey,
+    );
+  }
+
+  String _encodeEcPrivateKeyPem(ECPrivateKey privateKey) {
+    final dBytes = _bigIntToBytes(privateKey.d!);
+    final version = _encodeDerInteger([1]);
+
+    final privateKeyBytes = _encodeDerOctetString(dBytes);
+
+    final curveOidBytes = [
+      0x06, 0x08, 0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x03, 0x01, 0x07,
+    ];
+    final curveOid = _encodeDerContextSpecific(0, curveOidBytes);
+
+    final curve = ECCurve_secp256r1();
+    final publicKeyPoint = curve.G * privateKey.d!;
+    final publicKeyBytes = publicKeyPoint?.getEncoded(false) ?? Uint8List(0);
+    final publicKey = _encodeDerContextSpecific(1, publicKeyBytes);
+
+    final content = [...version, ...privateKeyBytes, ...curveOid, ...publicKey];
+    final sequence = _encodeDerSequence(content);
+
+    final base64Str = base64Encode(sequence);
+    return _formatPem(
+      base64Str,
+      Constants.pemHeaderEcPrivateKey,
+      Constants.pemFooterEcPrivateKey,
+    );
+  }
+
+  List<int> _encodeDerOctetString(List<int> content) {
+    final lengthBytes = _encodeDerLength(content.length);
+    return [0x04, ...lengthBytes, ...content];
+  }
+
+  List<int> _encodeDerContextSpecific(int tag, List<int> content) {
+    final lengthBytes = _encodeDerLength(content.length);
+    return [0xA0 + tag, ...lengthBytes, ...content];
   }
 
   String _encodePublicKeyPem(RSAPublicKey publicKey) {
@@ -210,17 +301,147 @@ class KeyManager {
   bool validatePemFormat(String pem, {bool requirePrivateKey = false}) {
     if (pem.isEmpty) return false;
 
-    final hasPublicKeyHeader = pem.contains(Constants.pemHeaderRsaPublicKey);
-    final hasPrivateKeyHeader = pem.contains(Constants.pemHeaderRsaPrivateKey);
+    final hasRsaPublicKeyHeader = pem.contains(Constants.pemHeaderRsaPublicKey);
+    final hasRsaPrivateKeyHeader = pem.contains(Constants.pemHeaderRsaPrivateKey);
+    final hasEcPublicKeyHeader = pem.contains(Constants.pemHeaderEcPublicKey);
+    final hasEcPrivateKeyHeader = pem.contains(Constants.pemHeaderEcPrivateKey);
 
     if (requirePrivateKey) {
-      return hasPrivateKeyHeader &&
-          pem.contains(Constants.pemFooterRsaPrivateKey);
+      return (hasRsaPrivateKeyHeader &&
+              pem.contains(Constants.pemFooterRsaPrivateKey)) ||
+          (hasEcPrivateKeyHeader &&
+              pem.contains(Constants.pemFooterEcPrivateKey));
     }
 
-    return (hasPublicKeyHeader &&
+    return (hasRsaPublicKeyHeader &&
             pem.contains(Constants.pemFooterRsaPublicKey)) ||
-        (hasPrivateKeyHeader && pem.contains(Constants.pemFooterRsaPrivateKey));
+        (hasRsaPrivateKeyHeader &&
+            pem.contains(Constants.pemFooterRsaPrivateKey)) ||
+        (hasEcPublicKeyHeader &&
+            pem.contains(Constants.pemFooterEcPublicKey)) ||
+        (hasEcPrivateKeyHeader &&
+            pem.contains(Constants.pemFooterEcPrivateKey));
+  }
+
+  bool isEccKey(String pem) {
+    if (pem.contains(Constants.pemHeaderEcPrivateKey)) {
+      return true;
+    }
+    if (pem.contains(Constants.pemHeaderRsaPrivateKey)) {
+      return false;
+    }
+
+    if (pem.contains(Constants.pemHeaderRsaPublicKey)) {
+      return _isEcPublicKeyByOid(pem);
+    }
+
+    return false;
+  }
+
+  bool _isEcPublicKeyByOid(String pem) {
+    try {
+      final base64 = _extractBase64FromPem(pem);
+      final decoded = base64Decode(base64);
+
+      if (decoded.isEmpty || decoded[0] != 0x30) return false;
+
+      var offset = 1;
+      offset = _skipDerLengthBytes(decoded, offset);
+
+      if (offset >= decoded.length || decoded[offset] != 0x30) return false;
+      offset++;
+      offset = _skipDerLengthBytes(decoded, offset);
+
+      if (offset + 2 > decoded.length || decoded[offset] != 0x06) return false;
+
+      final oidLen = decoded[offset + 1];
+      if (offset + 2 + oidLen > decoded.length) return false;
+
+      final oidBytes = decoded.sublist(offset + 2, offset + 2 + oidLen);
+
+      final ecOid = [0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x02, 0x01];
+      if (oidBytes.length >= ecOid.length) {
+        for (var i = 0; i < ecOid.length; i++) {
+          if (oidBytes[i] != ecOid[i]) return false;
+        }
+        return true;
+      }
+
+      return false;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  ECPublicKey? parseEcPublicKeyPem(String pem) {
+    try {
+      final base64 = _extractBase64FromPem(pem);
+      final decoded = base64Decode(base64);
+
+      if (decoded.isEmpty || decoded[0] != 0x30) return null;
+
+      var offset = 1;
+      offset = _skipDerLengthBytes(decoded, offset);
+
+      if (offset >= decoded.length || decoded[offset] != 0x30) return null;
+      offset++;
+      offset = _skipDerLengthBytes(decoded, offset);
+
+      if (offset + 2 > decoded.length || decoded[offset] != 0x06) return null;
+      final oidLen = decoded[offset + 1];
+      offset += 2 + oidLen;
+
+      if (offset >= decoded.length) return null;
+      if (decoded[offset] == 0x06) {
+        final curveOidLen = decoded[offset + 1];
+        offset += 2 + curveOidLen;
+      }
+
+      if (offset >= decoded.length || decoded[offset] != 0x03) return null;
+      offset++;
+      offset = _skipDerLengthBytes(decoded, offset);
+
+      if (decoded[offset] != 0x00) return null;
+      offset++;
+
+      final pointBytes = decoded.sublist(offset);
+      final curve = ECCurve_secp256r1();
+      final point = curve.curve.decodePoint(pointBytes);
+
+      return ECPublicKey(point, curve);
+    } catch (e) {
+      return null;
+    }
+  }
+
+  ECPrivateKey? parseEcPrivateKeyPem(String pem) {
+    try {
+      final base64 = _extractBase64FromPem(pem);
+      final decoded = base64Decode(base64);
+
+      if (decoded.isEmpty || decoded[0] != 0x30) return null;
+
+      var offset = 1;
+      offset = _skipDerLengthBytes(decoded, offset);
+
+      if (offset >= decoded.length || decoded[offset] != 0x02) return null;
+      offset++;
+      final versionLen = _readDerLength(decoded, offset);
+      offset = _skipDerLengthBytes(decoded, offset) + versionLen;
+
+      if (offset >= decoded.length || decoded[offset] != 0x04) return null;
+      offset++;
+      final privateKeyLen = _readDerLength(decoded, offset);
+      offset = _skipDerLengthBytes(decoded, offset);
+      final privateKeyBytes = decoded.sublist(offset, offset + privateKeyLen);
+
+      final d = _bytesToBigInt(privateKeyBytes);
+      final curve = ECCurve_secp256r1();
+
+      return ECPrivateKey(d, curve);
+    } catch (e) {
+      return null;
+    }
   }
 
   RSAPublicKey? parsePublicKeyPem(String pem) {

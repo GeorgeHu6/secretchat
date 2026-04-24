@@ -25,7 +25,8 @@ class QrDisplayDialog extends StatelessWidget {
           Text(title),
         ],
       ),
-      content: SingleChildScrollView(
+      content: SizedBox(
+        width: 280,
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
